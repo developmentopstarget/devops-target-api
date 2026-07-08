@@ -45,3 +45,50 @@ Before saying work is complete:
 - Check git status.
 - Run available tests, lint, or build commands when they exist.
 - Summarize what changed and how to verify it.
+
+## Project Handoff Rule
+
+Every project must keep a root-level `handoff.md` file.
+
+Before ending a coding session, running `/clear`, switching AI tools, stopping work for the day, opening a PR, merging a PR, debugging a major issue, or changing deployment/config behavior, update `handoff.md`.
+
+The handoff must capture the current project state only. Do not include old unrelated conversation history.
+
+Required sections:
+
+# Goal
+
+What we are trying to build, fix, or ship.
+
+## Current State
+
+Include:
+- current branch
+- working tree status
+- what works
+- what is still broken
+- latest test/build status if known
+
+## Files in Flight
+
+Files actively edited or likely relevant next.
+
+## Changed This Session
+
+What was touched, created, deleted, refactored, configured, or tested.
+
+## Failed Attempts
+
+What was tried but did not work, including the reason if known.
+
+## Important Context
+
+Decisions, assumptions, constraints, warnings, credentials/account context, deployment notes, or "do not change" items.
+
+## Next Step
+
+The single next action to take first in a fresh session.
+
+## Commands to Run First
+
+Exact commands the next AI/dev session should run before editing.
