@@ -6,7 +6,7 @@ from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from .models import Category, Product, ProductImage, Review
+from .models import Address, Category, Product, ProductImage, Review
 
 
 def make_product(**kwargs):
@@ -380,3 +380,148 @@ class ProductReviewsEndpointTests(APITestCase):
         response = self.client.post(self.url, {"rating": 6}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+def make_address(**kwargs):
+    defaults = {
+        "full_name": "Ada Lovelace",
+        "line1": "123 Main St",
+        "city": "Springfield",
+        "postal_code": "12345",
+    }
+    defaults.update(kwargs)
+    return Address.objects.create(**defaults)
+
+
+class AddressModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="addruser", password="pass")
+
+    def test_str_includes_name_and_city(self):
+        address = make_address(user=self.user)
+        self.assertIn("Ada Lovelace", str(address))
+        self.assertIn("Springfield", str(address))
+
+    def test_setting_default_unsets_previous_default(self):
+        first = make_address(user=self.user, is_default=True, line1="First St")
+        second = make_address(user=self.user, is_default=True, line1="Second St")
+
+        first.refresh_from_db()
+        self.assertFalse(first.is_default)
+        self.assertTrue(second.is_default)
+
+    def test_default_does_not_affect_other_users(self):
+        other = User.objects.create_user(username="addrother", password="pass")
+        mine = make_address(user=self.user, is_default=True)
+        theirs = make_address(user=other, is_default=True)
+
+        mine.refresh_from_db()
+        theirs.refresh_from_db()
+        self.assertTrue(mine.is_default)
+        self.assertTrue(theirs.is_default)
+
+
+class AddressViewSetTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="addrapi", password="pass")
+        self.other = User.objects.create_user(username="addrapiother", password="pass")
+        self.token = Token.objects.create(user=self.user)
+        self.url = reverse("address-list")
+
+    def authenticate(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+
+    def test_unauthenticated_list_returns_401(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_list_returns_only_own_addresses(self):
+        self.authenticate()
+        make_address(user=self.user, label="Home")
+        make_address(user=self.other, label="Theirs")
+
+        response = self.client.get(self.url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["label"], "Home")
+
+    def test_create_assigns_owner_to_request_user(self):
+        self.authenticate()
+
+        response = self.client.post(
+            self.url,
+            {
+                "full_name": "Grace Hopper",
+                "line1": "1 Compiler Way",
+                "city": "Arlington",
+                "postal_code": "22201",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        address = Address.objects.get(full_name="Grace Hopper")
+        self.assertEqual(address.user, self.user)
+
+    def test_cannot_read_other_users_address(self):
+        self.authenticate()
+        theirs = make_address(user=self.other)
+
+        response = self.client.get(reverse("address-detail", args=[theirs.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_cannot_update_other_users_address(self):
+        self.authenticate()
+        theirs = make_address(user=self.other, full_name="Not Yours")
+
+        response = self.client.patch(
+            reverse("address-detail", args=[theirs.id]),
+            {"full_name": "Hijacked"},
+            format="json",
+        )
+
+        theirs.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(theirs.full_name, "Not Yours")
+
+    def test_update_own_address(self):
+        self.authenticate()
+        mine = make_address(user=self.user, full_name="Old Name")
+
+        response = self.client.patch(
+            reverse("address-detail", args=[mine.id]),
+            {"full_name": "New Name"},
+            format="json",
+        )
+
+        mine.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mine.full_name, "New Name")
+
+    def test_delete_own_address(self):
+        self.authenticate()
+        mine = make_address(user=self.user)
+
+        response = self.client.delete(reverse("address-detail", args=[mine.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(Address.objects.count(), 0)
+
+    def test_setting_is_default_via_api_unsets_previous(self):
+        self.authenticate()
+        first = make_address(user=self.user, is_default=True, line1="First St")
+        second = make_address(user=self.user, line1="Second St")
+
+        response = self.client.patch(
+            reverse("address-detail", args=[second.id]),
+            {"is_default": True},
+            format="json",
+        )
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(first.is_default)
+        self.assertTrue(second.is_default)

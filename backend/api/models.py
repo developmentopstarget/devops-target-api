@@ -15,6 +15,22 @@ class Item(models.Model):
         return self.name
 
 
+class Profile(models.Model):
+    LANGUAGE_CHOICES = [("en", "English"), ("fa", "Persian")]
+    THEME_CHOICES = [("light", "Light"), ("dark", "Dark")]
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="profile",
+    )
+    language = models.CharField(max_length=5, choices=LANGUAGE_CHOICES, default="en")
+    theme = models.CharField(max_length=10, choices=THEME_CHOICES, default="light")
+
+    def __str__(self):
+        return f"Profile({self.user})"
+
+
 class Notification(models.Model):
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,

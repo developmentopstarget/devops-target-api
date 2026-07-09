@@ -123,10 +123,58 @@ class MeViewTests(APITestCase):
     def test_response_contains_exactly_safe_fields(self):
         self.authenticate()
         response = self.client.get(self.url)
-        self.assertEqual(set(response.data.keys()), {"id", "username", "email"})
+        self.assertEqual(
+            set(response.data.keys()),
+            {"id", "username", "email", "first_name", "language", "theme"},
+        )
         self.assertEqual(response.data["id"], self.user.id)
         self.assertEqual(response.data["username"], "meuser")
         self.assertEqual(response.data["email"], "me@example.com")
+
+    def test_get_returns_default_profile_prefs(self):
+        self.authenticate()
+        response = self.client.get(self.url)
+        self.assertEqual(response.data["language"], "en")
+        self.assertEqual(response.data["theme"], "light")
+
+    def test_patch_updates_first_name_and_email(self):
+        self.authenticate()
+        response = self.client.patch(
+            self.url,
+            {"first_name": "Ada", "email": "ada@example.com"},
+            format="json",
+        )
+        self.user.refresh_from_db()
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["first_name"], "Ada")
+        self.assertEqual(response.data["email"], "ada@example.com")
+        self.assertEqual(self.user.first_name, "Ada")
+        self.assertEqual(self.user.email, "ada@example.com")
+
+    def test_patch_updates_profile_prefs(self):
+        self.authenticate()
+        response = self.client.patch(
+            self.url,
+            {"language": "fa", "theme": "dark"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["language"], "fa")
+        self.assertEqual(response.data["theme"], "dark")
+
+        second = self.client.get(self.url)
+        self.assertEqual(second.data["language"], "fa")
+        self.assertEqual(second.data["theme"], "dark")
+
+    def test_patch_rejects_invalid_theme(self):
+        self.authenticate()
+        response = self.client.patch(self.url, {"theme": "neon"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("theme", response.data)
+
+    def test_patch_unauthenticated_returns_401(self):
+        response = self.client.patch(self.url, {"first_name": "Ada"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 

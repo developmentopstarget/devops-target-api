@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db import models
+from django.db import models, transaction
 
 
 class Category(models.Model):
@@ -120,3 +120,34 @@ class Review(models.Model):
 
     def __str__(self):
         return f"{self.product.name} — {self.rating}★ by {self.user}"
+
+
+class Address(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="addresses",
+    )
+    label = models.CharField(max_length=50, blank=True)
+    full_name = models.CharField(max_length=150)
+    line1 = models.CharField(max_length=255)
+    line2 = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100)
+    postal_code = models.CharField(max_length=20)
+    phone = models.CharField(max_length=30, blank=True)
+    is_default = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["-is_default", "-id"]
+        verbose_name_plural = "addresses"
+
+    def __str__(self):
+        return f"{self.full_name} — {self.line1}, {self.city}"
+
+    def save(self, *args, **kwargs):
+        with transaction.atomic():
+            super().save(*args, **kwargs)
+            if self.is_default:
+                Address.objects.filter(user=self.user, is_default=True).exclude(
+                    pk=self.pk
+                ).update(is_default=False)

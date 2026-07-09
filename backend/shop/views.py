@@ -6,9 +6,10 @@ from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 
-from .models import Category, Product, Review
+from .models import Address, Category, Product, Review
 from .pagination import ProductPagination
 from .serializers import (
+    AddressSerializer,
     CategorySerializer,
     ProductDetailSerializer,
     ProductListSerializer,
@@ -138,3 +139,13 @@ class ProductViewSet(viewsets.ReadOnlyModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save(product=product, user=request.user)
         return Response(serializer.data, status=201)
+
+
+class AddressViewSet(viewsets.ModelViewSet):
+    serializer_class = AddressSerializer
+
+    def get_queryset(self):
+        return Address.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)

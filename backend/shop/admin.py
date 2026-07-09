@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Category, Product, ProductImage, Review
+from .models import Address, Category, Product, ProductImage, Review
 
 
 @admin.register(Category)
@@ -53,3 +53,18 @@ class ReviewAdmin(admin.ModelAdmin):
     readonly_fields = ("created_at",)
     date_hierarchy = "created_at"
     ordering = ("-created_at",)
+
+
+@admin.register(Address)
+class AddressAdmin(admin.ModelAdmin):
+    list_display = ("full_name", "user", "city", "postal_code", "label", "is_default")
+    list_filter = ("is_default", "city")
+    search_fields = (
+        "full_name",
+        "user__username",
+        "user__email",
+        "line1",
+        "city",
+        "postal_code",
+    )
+    ordering = ("-is_default", "-id")

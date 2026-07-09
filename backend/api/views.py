@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .models import Item, Notification
-from .serializers import ItemSerializer, NotificationSerializer
+from .serializers import ItemSerializer, MeSerializer, NotificationSerializer
 
 
 class ItemViewSet(viewsets.ModelViewSet):
@@ -46,9 +46,10 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
 
 class MeView(APIView):
     def get(self, request):
-        user = request.user
-        return Response({
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-        })
+        return Response(MeSerializer(request.user).data)
+
+    def patch(self, request):
+        serializer = MeSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+        return Response(MeSerializer(user).data)
