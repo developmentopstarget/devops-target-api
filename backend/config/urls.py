@@ -5,6 +5,7 @@ from django.http import JsonResponse
 from rest_framework.routers import DefaultRouter
 from api.views import ItemViewSet, MeView, NotificationViewSet
 from chat.views import ChatHistoryView
+from shop.views import CategoryViewSet, ProductViewSet
 
 def health(request):
     return JsonResponse({"status": "ok"})
@@ -12,6 +13,8 @@ def health(request):
 router = DefaultRouter()
 router.register(r"items", ItemViewSet, basename="item")
 router.register(r"notifications", NotificationViewSet, basename="notification")
+router.register(r"products", ProductViewSet, basename="product")
+router.register(r"categories", CategoryViewSet, basename="category")
 
 urlpatterns = [
     path("admin/", admin.site.urls),
