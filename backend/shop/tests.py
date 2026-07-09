@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
 from django.test import TestCase
@@ -6,7 +8,15 @@ from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework.test import APITestCase
 
-from .models import Address, Category, Product, ProductImage, Review
+from api.models import Notification
+
+from .models import Address, Category, Order, OrderItem, Product, ProductImage, Review
+
+ORDER_PRICING_SETTINGS = {
+    "TAX_RATE": 0.08,
+    "DELIVERY_FEE": Decimal("9.99"),
+    "FREE_DELIVERY_THRESHOLD": Decimal("99"),
+}
 
 
 def make_product(**kwargs):
@@ -525,3 +535,259 @@ class AddressViewSetTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(first.is_default)
         self.assertTrue(second.is_default)
+
+
+class OrderModelTests(TestCase):
+    def test_str_returns_number(self):
+        user = User.objects.create_user(username="orderowner", password="pass")
+        order = Order.objects.create(
+            user=user,
+            email=user.email,
+            fulfillment="pickup",
+            subtotal="10.00",
+            total="10.00",
+        )
+        self.assertEqual(str(order), order.number)
+
+    def test_number_is_auto_generated_and_formatted(self):
+        user = User.objects.create_user(username="orderowner2", password="pass")
+        order = Order.objects.create(
+            user=user,
+            email=user.email,
+            fulfillment="pickup",
+            subtotal="10.00",
+            total="10.00",
+        )
+        self.assertRegex(order.number, r"^DT-\d{6}$")
+
+
+class OrderViewSetTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            username="orderapi", password="pass", email="orderapi@example.com"
+        )
+        self.other = User.objects.create_user(username="orderapiother", password="pass")
+        self.token = Token.objects.create(user=self.user)
+        self.list_url = reverse("order-list")
+
+        self.category = Category.objects.create(name="Laptops", slug="laptops")
+        self.product = make_product(
+            name="Order Laptop",
+            slug="order-laptop",
+            sku="SKU-ORDER",
+            category=self.category,
+            price="100.00",
+            stock=10,
+        )
+
+    def authenticate(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+
+    def test_unauthenticated_list_returns_401(self):
+        response = self.client.get(self.list_url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_unauthenticated_create_returns_401(self):
+        response = self.client.post(self.list_url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_create_pickup_order_recomputes_totals_and_decrements_stock(self):
+        self.authenticate()
+
+        with self.settings(**ORDER_PRICING_SETTINGS):
+            response = self.client.post(
+                self.list_url,
+                {
+                    "fulfillment": "pickup",
+                    "items": [{"product": "order-laptop", "quantity": 2}],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["subtotal"], "200.00")
+        self.assertEqual(response.data["discount"], "0.00")
+        self.assertEqual(response.data["delivery_fee"], "0.00")
+        self.assertEqual(response.data["tax"], "16.00")
+        self.assertEqual(response.data["total"], "216.00")
+        self.assertEqual(len(response.data["items"]), 1)
+        self.assertEqual(response.data["items"][0]["product"], "order-laptop")
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 8)
+
+        order = Order.objects.get(id=response.data["id"])
+        self.assertEqual(order.user, self.user)
+        notification = Notification.objects.get(user=self.user)
+        self.assertIn(order.number, notification.message)
+
+    def test_delivery_order_requires_address_id(self):
+        self.authenticate()
+
+        response = self.client.post(
+            self.list_url,
+            {
+                "fulfillment": "delivery",
+                "items": [{"product": "order-laptop", "quantity": 1}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("address_id", response.data)
+
+    def test_delivery_order_rejects_other_users_address(self):
+        self.authenticate()
+        theirs = make_address(user=self.other)
+
+        response = self.client.post(
+            self.list_url,
+            {
+                "fulfillment": "delivery",
+                "address_id": theirs.id,
+                "items": [{"product": "order-laptop", "quantity": 1}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("address_id", response.data)
+
+    def test_delivery_order_below_free_threshold_charges_delivery_fee(self):
+        self.authenticate()
+        mine = make_address(user=self.user)
+        cheap = make_product(
+            name="Cheap Mouse", slug="cheap-mouse", sku="SKU-MOUSE", price="50.00", stock=5
+        )
+
+        with self.settings(**ORDER_PRICING_SETTINGS):
+            response = self.client.post(
+                self.list_url,
+                {
+                    "fulfillment": "delivery",
+                    "address_id": mine.id,
+                    "items": [{"product": "cheap-mouse", "quantity": 1}],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["subtotal"], "50.00")
+        self.assertEqual(response.data["delivery_fee"], "9.99")
+        self.assertEqual(response.data["tax"], "4.00")
+        self.assertEqual(response.data["total"], "63.99")
+        self.assertEqual(response.data["shipping_address"]["full_name"], mine.full_name)
+
+    def test_delivery_order_above_free_threshold_waives_delivery_fee(self):
+        self.authenticate()
+        mine = make_address(user=self.user)
+
+        with self.settings(**ORDER_PRICING_SETTINGS):
+            response = self.client.post(
+                self.list_url,
+                {
+                    "fulfillment": "delivery",
+                    "address_id": mine.id,
+                    "items": [{"product": "order-laptop", "quantity": 2}],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["delivery_fee"], "0.00")
+
+    def test_insufficient_stock_rejected_and_stock_unchanged(self):
+        self.authenticate()
+
+        response = self.client.post(
+            self.list_url,
+            {
+                "fulfillment": "pickup",
+                "items": [{"product": "order-laptop", "quantity": 999}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 10)
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_unknown_product_rejected(self):
+        self.authenticate()
+
+        response = self.client.post(
+            self.list_url,
+            {
+                "fulfillment": "pickup",
+                "items": [{"product": "does-not-exist", "quantity": 1}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Order.objects.count(), 0)
+
+    def test_invalid_promo_code_rejected(self):
+        self.authenticate()
+
+        response = self.client.post(
+            self.list_url,
+            {
+                "fulfillment": "pickup",
+                "items": [{"product": "order-laptop", "quantity": 1}],
+                "promo_code": "NOTREAL",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("promo_code", response.data)
+
+    def test_valid_promo_code_applies_discount(self):
+        self.authenticate()
+
+        with self.settings(**ORDER_PRICING_SETTINGS):
+            response = self.client.post(
+                self.list_url,
+                {
+                    "fulfillment": "pickup",
+                    "items": [{"product": "order-laptop", "quantity": 1}],
+                    "promo_code": "spring10",
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["subtotal"], "100.00")
+        self.assertEqual(response.data["discount"], "10.00")
+        self.assertEqual(response.data["tax"], "7.20")
+        self.assertEqual(response.data["total"], "97.20")
+        self.assertEqual(response.data["promo_code"], "SPRING10")
+
+    def test_list_returns_only_own_orders(self):
+        self.authenticate()
+        Order.objects.create(
+            user=self.user, email=self.user.email, fulfillment="pickup",
+            subtotal="10.00", total="10.00",
+        )
+        Order.objects.create(
+            user=self.other, email=self.other.email, fulfillment="pickup",
+            subtotal="20.00", total="20.00",
+        )
+
+        response = self.client.get(self.list_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+
+    def test_cannot_retrieve_other_users_order(self):
+        self.authenticate()
+        theirs = Order.objects.create(
+            user=self.other, email=self.other.email, fulfillment="pickup",
+            subtotal="20.00", total="20.00",
+        )
+
+        response = self.client.get(reverse("order-detail", args=[theirs.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

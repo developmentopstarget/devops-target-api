@@ -1,3 +1,4 @@
+from decimal import Decimal
 from pathlib import Path
 import os
 
@@ -32,6 +33,11 @@ CHAT_WEBSOCKET_AUTH_TIMEOUT_SECONDS = float(
     os.getenv("CHAT_WEBSOCKET_AUTH_TIMEOUT_SECONDS", "10")
 )
 LOW_STOCK_THRESHOLD = int(os.getenv("LOW_STOCK_THRESHOLD", "5"))
+# Defaults mirror the frontend's checkout placeholders (web/src/lib/checkout.ts,
+# web/src/config/store.ts) so server-recomputed totals match the UI's preview.
+TAX_RATE = float(os.getenv("TAX_RATE", "0.08"))
+DELIVERY_FEE = Decimal(os.getenv("DELIVERY_FEE", "9.99"))
+FREE_DELIVERY_THRESHOLD = Decimal(os.getenv("FREE_DELIVERY_THRESHOLD", "99"))
 
 ALLOWED_HOSTS = csv_env(
     "ALLOWED_HOSTS",

@@ -1,16 +1,18 @@
 from decimal import Decimal, InvalidOperation
 
 from django.db.models import Avg, Count, F, Q
-from rest_framework import viewsets
+from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
 
-from .models import Address, Category, Product, Review
+from .models import Address, Category, Order, Product, Review
 from .pagination import ProductPagination
 from .serializers import (
     AddressSerializer,
     CategorySerializer,
+    OrderCreateSerializer,
+    OrderSerializer,
     ProductDetailSerializer,
     ProductListSerializer,
     ReviewSerializer,
@@ -149,3 +151,26 @@ class AddressViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+
+class OrderViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
+):
+    def get_queryset(self):
+        return Order.objects.filter(user=self.request.user).prefetch_related(
+            "items", "items__product"
+        )
+
+    def get_serializer_class(self):
+        if self.action == "create":
+            return OrderCreateSerializer
+        return OrderSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        order = serializer.save()
+        return Response(OrderSerializer(order).data, status=201)

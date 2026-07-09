@@ -1,3 +1,5 @@
+import random
+
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
@@ -151,3 +153,82 @@ class Address(models.Model):
                 Address.objects.filter(user=self.user, is_default=True).exclude(
                     pk=self.pk
                 ).update(is_default=False)
+
+
+ORDER_STATUS_CHOICES = [
+    ("pending", "Pending"),
+    ("paid", "Paid"),
+    ("preparing", "Preparing"),
+    ("ready", "Ready"),
+    ("shipped", "Shipped"),
+    ("delivered", "Delivered"),
+    ("cancelled", "Cancelled"),
+    ("refunded", "Refunded"),
+]
+
+FULFILLMENT_CHOICES = [
+    ("pickup", "Pickup"),
+    ("delivery", "Delivery"),
+]
+
+
+def generate_order_number():
+    for _ in range(20):
+        candidate = f"DT-{random.randint(100000, 999999)}"
+        if not Order.objects.filter(number=candidate).exists():
+            return candidate
+    raise RuntimeError("Could not generate a unique order number")
+
+
+class Order(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="orders",
+    )
+    number = models.CharField(
+        max_length=20, unique=True, db_index=True, default=generate_order_number, editable=False
+    )
+    email = models.EmailField()
+    status = models.CharField(
+        max_length=20, choices=ORDER_STATUS_CHOICES, default="pending", db_index=True
+    )
+    fulfillment = models.CharField(max_length=10, choices=FULFILLMENT_CHOICES)
+    shipping_address = models.JSONField(default=dict, blank=True)
+    subtotal = models.DecimalField(max_digits=10, decimal_places=2)
+    discount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    tax = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    total = models.DecimalField(max_digits=10, decimal_places=2)
+    promo_code = models.CharField(max_length=30, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+    def __str__(self):
+        return self.number
+
+
+class OrderItem(models.Model):
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="order_items",
+    )
+    name = models.CharField(max_length=200)
+    sku = models.CharField(max_length=64)
+    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
+    quantity = models.PositiveIntegerField()
+    line_total = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self):
+        return f"{self.name} x{self.quantity} ({self.order.number})"
