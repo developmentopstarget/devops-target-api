@@ -14,6 +14,12 @@ class HealthCheckTests(APITestCase):
         self.assertEqual(response.json(), {"status": "ok"})
 
 
+class AdminSiteTests(APITestCase):
+    def test_admin_login_page_returns_200(self):
+        response = self.client.get("/admin/login/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
 class ItemViewSetTests(APITestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="testuser", password="pass")

@@ -7,7 +7,8 @@ Current focus: implementing the commerce backend per `docs/backend-spec.md`, in 
 ## Current State
 
 - Branch: `main`
-- Working tree: clean.
+- Working tree: 2 files modified (`backend/entrypoint.sh`, `backend/api/tests.py`) — see "Changed This Session".
+- Fixed this session: `/admin/login/` 500 under `DEBUG=False`. Root cause: `STORAGES["staticfiles"]` uses `whitenoise.storage.CompressedManifestStaticFilesStorage`, which requires `collectstatic` to have been run (it looks up hashed filenames in `staticfiles/staticfiles.json`). The Dockerfile already runs `collectstatic` at *build* time, but nothing ran it at *container start*, so any deploy path that skips/loses that build step (or a stale image restarted against new code) would 500 on any admin page — the `{% static %}` tag for `admin/css/base.css` raises `ValueError: Missing staticfiles manifest entry` when the manifest is absent/stale. Fixed by adding `collectstatic --noinput` to `entrypoint.sh` as a runtime safety net alongside the existing Docker build-time step. Verified full flow under `DEBUG=False` via `runserver`: superuser login (302), admin index/Products/Orders all 200 and rendering authenticated content.
 - What works:
   - `shop` app models: `Category`, `Product`, `ProductImage`, `Review`, `Address`, `Order`, `OrderItem` — all migrated, admin-registered (list_display/list_filter/search_fields/date_hierarchy; `ProductImage` inline on `Product`; `OrderItem` inline + status actions on `Order`).
   - `api` app: `Profile` model (OneToOne on `User`, `language`/`theme` prefs).
@@ -26,10 +27,14 @@ Current focus: implementing the commerce backend per `docs/backend-spec.md`, in 
 
 ## Files in Flight
 
-None — Increment 5 fully implemented and tested.
+None. `/admin/login/` 500 fix is complete and verified; staged for commit.
 
 ## Changed This Session
 
+- **Admin `/admin/login/` 500 fix (DEBUG=False)**:
+  - `backend/entrypoint.sh`: added `python manage.py collectstatic --noinput` before `migrate`, so static assets (admin CSS/JS) are guaranteed present at container start regardless of build path.
+  - `backend/api/tests.py`: added `AdminSiteTests.test_admin_login_page_returns_200` regression test.
+  - Note: local dev/test runs now implicitly depend on `collectstatic` having been run at least once (manifest storage requires it) — see "Commands to Run First".
 - **Increment 5** (commit pending):
   - Added `stripe` library dependency to `backend/requirements.txt` and installed in `.venv`.
   - Registered environment variables (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY`) in `backend/config/settings.py` and documented in `backend/.env.example`.
@@ -40,11 +45,13 @@ None — Increment 5 fully implemented and tested.
 
 ## Failed Attempts
 
-- None.
+- None. (Ruled out ALLOWED_HOSTS, SECRET_KEY, session/CSRF settings, and the Profile/shop admin registrations as causes of the `/admin/login/` 500 — none were involved; confirmed via full traceback that it was purely the missing `staticfiles.json` manifest.)
 
 ## Important Context
 
 - Stripe mock keys (`mock_secret_key`, etc.) are configured as defaults in `settings.py` for testing and local runs without a local `.env` setup.
+- `STORAGES["staticfiles"]` uses `whitenoise.storage.CompressedManifestStaticFilesStorage` (manifest-based, hashed filenames). This storage backend raises a hard `ValueError` on any `{% static %}` template tag if `collectstatic` hasn't been run — it does not fail gracefully. This affects Django admin pages (which use `{% static %}` heavily) under `DEBUG=False` in *any* environment (local dev, tests, CI, production) where `collectstatic` hasn't run first. `DEBUG=True` masks this because `runserver` serves static files directly via `django.contrib.staticfiles` finders instead, bypassing the manifest lookup entirely — do not use `DEBUG=True` behavior as evidence a static-config bug is fixed.
+- `backend/staticfiles/` is gitignored (correctly — it's a build artifact), so a fresh checkout will always need `collectstatic` before `/admin/` works under `DEBUG=False`.
 
 ## Next Step
 
@@ -54,6 +61,7 @@ Start increment 6: Add django-otp and qrcode to `requirements.txt`. Implement 2F
 
 ```bash
 cd backend
+./.venv/bin/python manage.py collectstatic --noinput
 ./.venv/bin/python manage.py check
 ./.venv/bin/python manage.py test
 ```
