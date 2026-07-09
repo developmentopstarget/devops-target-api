@@ -39,6 +39,11 @@ TAX_RATE = float(os.getenv("TAX_RATE", "0.08"))
 DELIVERY_FEE = Decimal(os.getenv("DELIVERY_FEE", "9.99"))
 FREE_DELIVERY_THRESHOLD = Decimal(os.getenv("FREE_DELIVERY_THRESHOLD", "99"))
 
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "mock_secret_key")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "mock_webhook_secret")
+STRIPE_PUBLISHABLE_KEY = os.getenv("STRIPE_PUBLISHABLE_KEY", "mock_publishable_key")
+
+
 ALLOWED_HOSTS = csv_env(
     "ALLOWED_HOSTS",
     "127.0.0.1,localhost,0.0.0.0",

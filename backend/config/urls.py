@@ -5,7 +5,10 @@ from django.http import JsonResponse
 from rest_framework.routers import DefaultRouter
 from api.views import ItemViewSet, MeView, NotificationViewSet
 from chat.views import ChatHistoryView
-from shop.views import AddressViewSet, CategoryViewSet, OrderViewSet, ProductViewSet
+from shop.views import (
+    AddressViewSet, CategoryViewSet, OrderViewSet, ProductViewSet,
+    CreatePaymentIntentView, StripeWebhookView
+)
 
 def health(request):
     return JsonResponse({"status": "ok"})
@@ -24,6 +27,8 @@ urlpatterns = [
     path("api/", include(router.urls)),
     path("api/me/", MeView.as_view()),
     path("api/chat/history/", ChatHistoryView.as_view()),
+    path("api/checkout/intent/", CreatePaymentIntentView.as_view(), name="checkout-intent"),
+    path("api/webhooks/stripe/", StripeWebhookView.as_view(), name="stripe-webhook"),
     # --- auth endpoints ---
     path('api/auth/', include('djoser.urls')),
     path('api/auth/', include('djoser.urls.authtoken')),

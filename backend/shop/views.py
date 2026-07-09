@@ -1,11 +1,18 @@
 from decimal import Decimal, InvalidOperation
+import stripe
 
+from django.conf import settings
+from django.db import transaction
 from django.db.models import Avg, Count, F, Q
-from rest_framework import mixins, viewsets
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny, IsAuthenticatedOrReadOnly
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAuthenticatedOrReadOnly
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
+from api.models import Notification
 from .models import Address, Category, Order, Product, Review
 from .pagination import ProductPagination
 from .serializers import (
@@ -174,3 +181,138 @@ class OrderViewSet(
         serializer.is_valid(raise_exception=True)
         order = serializer.save()
         return Response(OrderSerializer(order).data, status=201)
+
+
+class CreatePaymentIntentView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        order_id = request.data.get("order_id")
+        if not order_id:
+            return Response({"order_id": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            order = Order.objects.get(id=order_id, user=request.user)
+        except Order.DoesNotExist:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if order.status == "paid":
+            return Response({"detail": "This order has already been paid."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if order.status in ["failed", "cancelled", "refunded"]:
+            return Response({"detail": "This order is cancelled or failed and cannot be paid."}, status=status.HTTP_400_BAD_REQUEST)
+
+        stripe.api_key = settings.STRIPE_SECRET_KEY
+
+        try:
+            amount_cents = int(order.total * 100)
+            intent = stripe.PaymentIntent.create(
+                amount=amount_cents,
+                currency="usd",
+                metadata={
+                    "order_id": order.id,
+                    "order_number": order.number,
+                    "user_id": request.user.id,
+                },
+            )
+
+            order.stripe_payment_intent_id = intent.id
+            order.save(update_fields=["stripe_payment_intent_id"])
+
+            return Response({
+                "client_secret": intent.client_secret,
+                "stripe_payment_intent_id": intent.id
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@method_decorator(csrf_exempt, name="dispatch")
+class StripeWebhookView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        payload = request.body
+        sig_header = request.META.get("HTTP_STRIPE_SIGNATURE")
+        endpoint_secret = settings.STRIPE_WEBHOOK_SECRET
+
+        if not sig_header:
+            return Response({"detail": "Missing Stripe-Signature header"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            event = stripe.Webhook.construct_event(
+                payload, sig_header, endpoint_secret
+            )
+        except ValueError as e:
+            return Response({"detail": "Invalid payload"}, status=status.HTTP_400_BAD_REQUEST)
+        except stripe.error.SignatureVerificationError as e:
+            return Response({"detail": "Invalid signature"}, status=status.HTTP_400_BAD_REQUEST)
+
+        event_type = event.get("type")
+        data_object = event.get("data", {}).get("object", {})
+        intent_id = data_object.get("id")
+
+        if not intent_id:
+            return Response({"detail": "Missing PaymentIntent ID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if event_type == "payment_intent.succeeded":
+            with transaction.atomic():
+                try:
+                    order = Order.objects.select_for_update().get(stripe_payment_intent_id=intent_id)
+                except Order.DoesNotExist:
+                    return Response({"detail": "Order not found"}, status=status.HTTP_404_NOT_FOUND)
+
+                if order.status != "paid":
+                    order.status = "paid"
+                    order.save(update_fields=["status"])
+
+                    if order.user:
+                        Notification.objects.create(
+                            user=order.user,
+                            title="Order paid",
+                            message=f"Payment for order {order.number} was successful.",
+                            link=f"/orders/{order.id}",
+                        )
+            return Response({"status": "success", "detail": "Order marked as paid"}, status=status.HTTP_200_OK)
+
+        elif event_type in ["payment_intent.payment_failed", "payment_intent.canceled"]:
+            with transaction.atomic():
+                try:
+                    order = Order.objects.select_for_update().get(stripe_payment_intent_id=intent_id)
+                except Order.DoesNotExist:
+                    return Response({"detail": "Order not found"}, status=status.HTTP_404_NOT_FOUND)
+
+                if order.status in ["failed", "cancelled", "refunded"]:
+                    return Response({"status": "ignored", "detail": "Order already in terminal state"}, status=status.HTTP_200_OK)
+
+                new_status = "cancelled" if event_type == "payment_intent.canceled" else "failed"
+                order.status = new_status
+                order.save(update_fields=["status"])
+
+                # Replenish stock safely
+                items = order.items.filter(product__isnull=False).select_related("product")
+                product_ids = [item.product.id for item in items]
+                if product_ids:
+                    product_ids.sort()
+                    products_locked = {
+                        p.id: p
+                        for p in Product.objects.select_for_update().filter(id__in=product_ids)
+                    }
+                    for item in items:
+                        product = products_locked.get(item.product.id)
+                        if product:
+                            product.stock += item.quantity
+                            product.save(update_fields=["stock"])
+
+                if order.user:
+                    event_name = "cancelled" if event_type == "payment_intent.canceled" else "failed"
+                    Notification.objects.create(
+                        user=order.user,
+                        title=f"Order payment {event_name}",
+                        message=f"Payment for order {order.number} {event_name}.",
+                        link=f"/orders/{order.id}",
+                    )
+            return Response({"status": "success", "detail": f"Order marked as {new_status} and stock replenished"}, status=status.HTTP_200_OK)
+
+        return Response({"status": "ignored", "detail": "Unhandled event type"}, status=status.HTTP_200_OK)

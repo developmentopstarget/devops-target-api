@@ -1,4 +1,5 @@
 from decimal import Decimal
+from unittest.mock import patch, MagicMock
 
 from django.contrib.auth.models import User
 from django.db import IntegrityError, transaction
@@ -791,3 +792,266 @@ class OrderViewSetTests(APITestCase):
         response = self.client.get(reverse("order-detail", args=[theirs.id]))
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class StripeCheckoutTests(APITestCase):
+    def setUp(self):
+        from unittest.mock import patch, MagicMock
+        self.user = User.objects.create_user(
+            username="stripeowner", password="pass", email="stripeowner@example.com"
+        )
+        self.other = User.objects.create_user(username="stripeother", password="pass")
+        self.token = Token.objects.create(user=self.user)
+        self.intent_url = reverse("checkout-intent")
+        self.webhook_url = reverse("stripe-webhook")
+
+        self.category = Category.objects.create(name="Accessories", slug="accessories")
+        self.product = make_product(
+            name="Stripe Mouse",
+            slug="stripe-mouse",
+            sku="SKU-STRIPE-MOUSE",
+            category=self.category,
+            price="50.00",
+            stock=10,
+        )
+
+    def authenticate(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+
+    @patch("stripe.PaymentIntent.create")
+    def test_create_payment_intent_success(self, mock_create):
+        from unittest.mock import MagicMock
+        self.authenticate()
+        order = Order.objects.create(
+            user=self.user,
+            email=self.user.email,
+            fulfillment="pickup",
+            subtotal="50.00",
+            total="54.00",
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            name=self.product.name,
+            sku=self.product.sku,
+            unit_price=self.product.price,
+            quantity=1,
+            line_total="50.00",
+        )
+
+        mock_intent = MagicMock()
+        mock_intent.id = "pi_12345"
+        mock_intent.client_secret = "pi_12345_secret_abc123"
+        mock_create.return_value = mock_intent
+
+        response = self.client.post(self.intent_url, {"order_id": order.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["client_secret"], "pi_12345_secret_abc123")
+        self.assertEqual(response.data["stripe_payment_intent_id"], "pi_12345")
+
+        order.refresh_from_db()
+        self.assertEqual(order.stripe_payment_intent_id, "pi_12345")
+        mock_create.assert_called_once_with(
+            amount=5400,
+            currency="usd",
+            metadata={
+                "order_id": order.id,
+                "order_number": order.number,
+                "user_id": self.user.id,
+            }
+        )
+
+    def test_create_payment_intent_missing_order_id(self):
+        self.authenticate()
+        response = self.client.post(self.intent_url, {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_payment_intent_not_found(self):
+        self.authenticate()
+        response = self.client.post(self.intent_url, {"order_id": 99999}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_payment_intent_other_users_order(self):
+        self.authenticate()
+        theirs = Order.objects.create(
+            user=self.other,
+            email=self.other.email,
+            fulfillment="pickup",
+            subtotal="50.00",
+            total="54.00",
+        )
+        response = self.client.post(self.intent_url, {"order_id": theirs.id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_create_payment_intent_already_paid(self):
+        self.authenticate()
+        order = Order.objects.create(
+            user=self.user,
+            email=self.user.email,
+            fulfillment="pickup",
+            subtotal="50.00",
+            total="54.00",
+            status="paid",
+        )
+        response = self.client.post(self.intent_url, {"order_id": order.id}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("stripe.Webhook.construct_event")
+    def test_webhook_payment_intent_succeeded(self, mock_construct):
+        order = Order.objects.create(
+            user=self.user,
+            email=self.user.email,
+            fulfillment="pickup",
+            subtotal="50.00",
+            total="54.00",
+            stripe_payment_intent_id="pi_123",
+            status="pending_payment",
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            name=self.product.name,
+            sku=self.product.sku,
+            unit_price=self.product.price,
+            quantity=2,
+            line_total="100.00",
+        )
+        self.product.stock = 8
+        self.product.save()
+
+        mock_construct.return_value = {
+            "type": "payment_intent.succeeded",
+            "data": {
+                "object": {
+                    "id": "pi_123"
+                }
+            }
+        }
+
+        response = self.client.post(
+            self.webhook_url,
+            data="raw_payload",
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE="valid_sig"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.status, "paid")
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 8)
+
+        self.assertTrue(Notification.objects.filter(user=self.user, title="Order paid").exists())
+
+    @patch("stripe.Webhook.construct_event")
+    def test_webhook_payment_intent_failed_replenishes_stock(self, mock_construct):
+        order = Order.objects.create(
+            user=self.user,
+            email=self.user.email,
+            fulfillment="pickup",
+            subtotal="50.00",
+            total="54.00",
+            stripe_payment_intent_id="pi_123",
+            status="pending_payment",
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            name=self.product.name,
+            sku=self.product.sku,
+            unit_price=self.product.price,
+            quantity=2,
+            line_total="100.00",
+        )
+        self.product.stock = 8
+        self.product.save()
+
+        mock_construct.return_value = {
+            "type": "payment_intent.payment_failed",
+            "data": {
+                "object": {
+                    "id": "pi_123"
+                }
+            }
+        }
+
+        response = self.client.post(
+            self.webhook_url,
+            data="raw_payload",
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE="valid_sig"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.status, "failed")
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 10)
+
+        self.assertTrue(Notification.objects.filter(user=self.user, title="Order payment failed").exists())
+
+    @patch("stripe.Webhook.construct_event")
+    def test_webhook_payment_intent_canceled_replenishes_stock(self, mock_construct):
+        order = Order.objects.create(
+            user=self.user,
+            email=self.user.email,
+            fulfillment="pickup",
+            subtotal="50.00",
+            total="54.00",
+            stripe_payment_intent_id="pi_123",
+            status="pending_payment",
+        )
+        OrderItem.objects.create(
+            order=order,
+            product=self.product,
+            name=self.product.name,
+            sku=self.product.sku,
+            unit_price=self.product.price,
+            quantity=3,
+            line_total="150.00",
+        )
+        self.product.stock = 7
+        self.product.save()
+
+        mock_construct.return_value = {
+            "type": "payment_intent.canceled",
+            "data": {
+                "object": {
+                    "id": "pi_123"
+                }
+            }
+        }
+
+        response = self.client.post(
+            self.webhook_url,
+            data="raw_payload",
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE="valid_sig"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.status, "cancelled")
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 10)
+
+        self.assertTrue(Notification.objects.filter(user=self.user, title="Order payment cancelled").exists())
+
+    @patch("stripe.Webhook.construct_event")
+    def test_webhook_invalid_signature(self, mock_construct):
+        import stripe
+        mock_construct.side_effect = stripe.error.SignatureVerificationError("Invalid signature", "sig")
+
+        response = self.client.post(
+            self.webhook_url,
+            data="raw_payload",
+            content_type="application/json",
+            HTTP_STRIPE_SIGNATURE="invalid_sig"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+

@@ -157,7 +157,9 @@ class Address(models.Model):
 
 ORDER_STATUS_CHOICES = [
     ("pending", "Pending"),
+    ("pending_payment", "Pending Payment"),
     ("paid", "Paid"),
+    ("failed", "Failed"),
     ("preparing", "Preparing"),
     ("ready", "Ready"),
     ("shipped", "Shipped"),
@@ -193,7 +195,7 @@ class Order(models.Model):
     )
     email = models.EmailField()
     status = models.CharField(
-        max_length=20, choices=ORDER_STATUS_CHOICES, default="pending", db_index=True
+        max_length=20, choices=ORDER_STATUS_CHOICES, default="pending_payment", db_index=True
     )
     fulfillment = models.CharField(max_length=10, choices=FULFILLMENT_CHOICES)
     shipping_address = models.JSONField(default=dict, blank=True)
@@ -203,7 +205,9 @@ class Order(models.Model):
     tax = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     total = models.DecimalField(max_digits=10, decimal_places=2)
     promo_code = models.CharField(max_length=30, blank=True)
+    stripe_payment_intent_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
 
     class Meta:
         ordering = ["-created_at", "-id"]
