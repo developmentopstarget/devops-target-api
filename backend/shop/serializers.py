@@ -1,3 +1,4 @@
+from collections import Counter
 from decimal import Decimal
 
 from django.conf import settings
@@ -200,17 +201,22 @@ class OrderCreateSerializer(serializers.Serializer):
                     {"items": f"Unknown or inactive product(s): {', '.join(missing)}"}
                 )
 
+            requested_quantities = Counter()
+            for item in items_data:
+                requested_quantities[item["product"]] += item["quantity"]
+
             subtotal = Decimal("0")
             line_items = []
             for item in items_data:
                 product = products[item["product"]]
                 quantity = item["quantity"]
-                if product.stock < quantity:
+                total_requested = requested_quantities[item["product"]]
+                if product.stock < total_requested:
                     raise serializers.ValidationError(
                         {
                             "items": (
                                 f"Insufficient stock for {product.name} "
-                                f"(have {product.stock}, requested {quantity})."
+                                f"(have {product.stock}, requested total of {total_requested})."
                             )
                         }
                     )
