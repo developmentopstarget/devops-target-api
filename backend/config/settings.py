@@ -31,6 +31,7 @@ OPENAI_CHAT_RATE_LIMIT_PER_MINUTE = int(
 CHAT_WEBSOCKET_AUTH_TIMEOUT_SECONDS = float(
     os.getenv("CHAT_WEBSOCKET_AUTH_TIMEOUT_SECONDS", "10")
 )
+LOW_STOCK_THRESHOLD = int(os.getenv("LOW_STOCK_THRESHOLD", "5"))
 
 ALLOWED_HOSTS = csv_env(
     "ALLOWED_HOSTS",
@@ -59,6 +60,7 @@ INSTALLED_APPS = [
     "channels",
     "api",
     "chat",
+    "shop",
 ]
 
 MIDDLEWARE = [
