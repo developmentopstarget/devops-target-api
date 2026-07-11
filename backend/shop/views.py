@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api.models import Notification
-from .models import Address, Category, Order, Product, Review
+from .models import Address, Category, Order, Product, Review, QuoteRequest, BankAccount, Payment
 from .pagination import ProductPagination
 from .serializers import (
     AddressSerializer,
@@ -23,6 +23,9 @@ from .serializers import (
     ProductDetailSerializer,
     ProductListSerializer,
     ReviewSerializer,
+    QuoteRequestSerializer,
+    BankAccountSerializer,
+    BankTransferSubmitSerializer,
 )
 
 
@@ -316,3 +319,111 @@ class StripeWebhookView(APIView):
             return Response({"status": "success", "detail": f"Order marked as {new_status} and stock replenished"}, status=status.HTTP_200_OK)
 
         return Response({"status": "ignored", "detail": "Unhandled event type"}, status=status.HTTP_200_OK)
+
+
+class QuoteRequestViewSet(viewsets.ModelViewSet):
+    serializer_class = QuoteRequestSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return QuoteRequest.objects.filter(user=self.request.user).select_related("product", "user", "order")
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+
+class BankAccountListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        accounts = BankAccount.objects.filter(is_active=True)
+        serializer = BankAccountSerializer(accounts, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class SubmitBankTransferView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = BankTransferSubmitSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        payment = serializer.save()
+        return Response(
+            {
+                "detail": "Bank transfer payment receipt submitted successfully.",
+                "payment_id": payment.id,
+                "status": payment.verification_status,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ZarinpalInitiateView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        order_id = request.data.get("order_id")
+        if not order_id:
+            return Response({"order_id": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            order = Order.objects.get(id=order_id, user=request.user)
+        except Order.DoesNotExist:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if order.status == "paid":
+            return Response({"detail": "This order has already been paid."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if order.status in ["failed", "cancelled", "refunded"]:
+            return Response({"detail": "This order is cancelled or failed and cannot be paid."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Stub Zarinpal payment initiation
+        import random
+        authority = f"zarp-{random.randint(1000000, 9999999)}"
+        return Response({
+            "status": "success",
+            "authority": authority,
+            "payment_url": f"https://sandbox.zarinpal.com/pg/StartPay/{authority}"
+        }, status=status.HTTP_200_OK)
+
+
+class ZarinpalCallbackView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        authority = request.query_params.get("Authority")
+        status_param = request.query_params.get("Status")  # "OK" or "NOK"
+        order_id = request.query_params.get("order_id")
+
+        if not authority or not order_id:
+            return Response({"detail": "Missing parameters."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            order = Order.objects.get(id=order_id)
+        except Order.DoesNotExist:
+            return Response({"detail": "Order not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if status_param == "OK":
+            with transaction.atomic():
+                if order.status != "paid":
+                    order.status = "paid"
+                    order.save(update_fields=["status"])
+
+                    Payment.objects.create(
+                        order=order,
+                        reference_number=authority,
+                        verification_status="approved",
+                    )
+
+                    if order.user:
+                        Notification.objects.create(
+                            user=order.user,
+                            title="پرداخت موفق زارین‌پال",
+                            message=f"پرداخت سفارش {order.number} از طریق درگاه زارین‌پال تایید شد.",
+                            link=f"/orders/{order.id}",
+                        )
+            return Response({"status": "paid", "message": "Payment verified successfully."}, status=status.HTTP_200_OK)
+        else:
+            if order.status == "pending_payment":
+                order.status = "failed"
+                order.save(update_fields=["status"])
+            return Response({"status": "failed", "message": "Payment was cancelled or failed."}, status=status.HTTP_400_BAD_REQUEST)

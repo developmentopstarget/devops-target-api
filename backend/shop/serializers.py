@@ -7,7 +7,7 @@ from rest_framework import serializers
 
 from api.models import Notification
 
-from .models import Address, Category, Order, OrderItem, Product, ProductImage, Review
+from .models import Address, Category, Order, OrderItem, Product, ProductImage, Review, QuoteRequest, BankAccount, Payment
 
 # Mirrors the frontend's placeholder promo list (web/src/components/commerce/PromoCode.tsx)
 # until a real PromoCode model/admin exists.
@@ -28,7 +28,7 @@ class CategorySerializer(serializers.ModelSerializer):
 class ProductImageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProductImage
-        fields = ["id", "url", "alt", "order", "is_primary"]
+        fields = ["id", "url", "image", "alt", "order", "is_primary"]
 
 
 class ProductListSerializer(serializers.ModelSerializer):
@@ -53,6 +53,9 @@ class ProductListSerializer(serializers.ModelSerializer):
             "stock_status",
             "is_featured",
             "specs",
+            "pricing_mode",
+            "type",
+            "condition",
             "aggregate_rating",
             "review_count",
             "created_at",
@@ -220,6 +223,10 @@ class OrderCreateSerializer(serializers.Serializer):
                             )
                         }
                     )
+                if product.pricing_mode == "on_request" or product.price is None:
+                    raise serializers.ValidationError(
+                        {"items": f"Product {product.name} is quote-only and cannot be purchased directly."}
+                    )
                 line_total = product.price * quantity
                 subtotal += line_total
                 line_items.append((product, quantity, line_total))
@@ -285,3 +292,106 @@ class OrderCreateSerializer(serializers.Serializer):
             )
 
         return order
+
+
+class QuoteRequestSerializer(serializers.ModelSerializer):
+    product = serializers.SlugRelatedField(slug_field="slug", queryset=Product.objects.filter(is_active=True))
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    user = serializers.CharField(source="user.username", read_only=True)
+    order_id = serializers.IntegerField(source="order.id", read_only=True, allow_null=True)
+    order_number = serializers.CharField(source="order.number", read_only=True, allow_null=True)
+
+    class Meta:
+        model = QuoteRequest
+        fields = [
+            "id",
+            "product",
+            "product_name",
+            "user",
+            "quantity",
+            "contact_phone",
+            "message",
+            "status",
+            "agreed_price",
+            "order_id",
+            "order_number",
+            "created_at",
+        ]
+        read_only_fields = [
+            "id",
+            "user",
+            "status",
+            "agreed_price",
+            "order_id",
+            "order_number",
+            "created_at",
+        ]
+
+
+class BankAccountSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BankAccount
+        fields = ["id", "bank_name", "card_number", "sheba_number", "holder_name", "is_active"]
+
+
+class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = [
+            "id",
+            "order",
+            "receipt_image",
+            "reference_number",
+            "verification_status",
+            "verified_at",
+            "created_at",
+        ]
+        read_only_fields = ["id", "verification_status", "verified_at", "created_at"]
+
+
+class BankTransferSubmitSerializer(serializers.Serializer):
+    order_id = serializers.IntegerField()
+    receipt_image = serializers.ImageField(required=True)
+    reference_number = serializers.CharField(max_length=100, required=True)
+
+    def validate(self, attrs):
+        request = self.context.get("request")
+        user = request.user if request else None
+
+        try:
+            order = Order.objects.get(id=attrs["order_id"], user=user)
+        except Order.DoesNotExist:
+            raise serializers.ValidationError({"order_id": "Order not found."})
+
+        if order.status == "paid":
+            raise serializers.ValidationError({"order_id": "Order has already been paid."})
+
+        if order.status in ["ready", "shipped", "delivered", "refunded"]:
+            raise serializers.ValidationError({"order_id": f"Order is in status '{order.status}' and cannot be paid."})
+
+        attrs["_order"] = order
+        return attrs
+
+    def create(self, validated_data):
+        order = validated_data["_order"]
+        with transaction.atomic():
+            order.status = "awaiting_verification"
+            order.save(update_fields=["status"])
+
+            payment = Payment.objects.create(
+                order=order,
+                receipt_image=validated_data["receipt_image"],
+                reference_number=validated_data["reference_number"],
+                verification_status="pending",
+            )
+
+            from api.models import Notification
+            if order.user:
+                Notification.objects.create(
+                    user=order.user,
+                    title="رسید پرداخت ثبت شد",
+                    message=f"رسید پرداخت شما برای سفارش {order.number} ثبت شد و در حال بررسی است.",
+                    link=f"/orders/{order.id}",
+                )
+
+        return payment
