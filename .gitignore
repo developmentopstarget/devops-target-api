@@ -45,3 +45,6 @@ build/
 # Local AI agent instructions
 AGENTS.md
 .claude/
+
+# user-uploaded media
+backend/media/

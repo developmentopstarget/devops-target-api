@@ -7,9 +7,11 @@ Current focus: Phase D Iranian Payments Backend Core.
 ## Current State
 
 - Branch: `feature/phase-d-payments`
-- Working tree: Modified files (`backend/requirements.txt`, `backend/config/settings.py`, `backend/config/urls.py`, `backend/shop/admin.py`, `backend/shop/models.py`, `backend/shop/serializers.py`, `backend/shop/views.py`, `backend/shop/tests.py`) and new migrations.
+- Working tree: Modified files (`.gitignore`, `backend/shop/apps.py`, `backend/shop/models.py`) and new migration (`backend/shop/migrations/0008_alter_address_options_alter_category_options_and_more.py`).
 - What works:
   - Django Admin modernized with responsive Farsi RTL layout using Tehran time zone.
+  - Category, Product, Review, Address, QuoteRequest, and Order models fully Farsi localized for navigation.
+  - Shop app label configured as "فروشگاه" in Farsi.
   - `QuoteRequest` system automatically creates orders and notifications.
   - `BankAccount` model tracks active bank transfer details.
   - `Payment` model tracks manual bank transfer receipts, reference numbers, and administrative verification.
@@ -25,19 +27,14 @@ Current focus: Phase D Iranian Payments Backend Core.
 
 ## Files in Flight
 
-None. Phase D Backend Core is complete.
+None. Django admin localization and Phase D Backend Core are complete.
 
 ## Changed This Session
 
-- **Phase D Iranian Payments Backend Core**:
-  - `backend/shop/models.py`: Created `BankAccount` and `Payment` models. Updated `ORDER_STATUS_CHOICES` to include `awaiting_verification` and hardened `Order.save` to validate state transitions.
-  - `backend/config/settings.py`: Configured `MEDIA_URL`, `MEDIA_ROOT`, and updated `STORAGES` to include the `default` backend config.
-  - `backend/config/urls.py`: Mounted the bank transfer and Zarinpal views, and served media files in debug mode.
-  - `backend/shop/serializers.py`: Added `BankAccountSerializer`, `PaymentSerializer`, and `BankTransferSubmitSerializer` with validation checks.
-  - `backend/shop/views.py`: Added view classes `BankAccountListView`, `SubmitBankTransferView`, `ZarinpalInitiateView`, and `ZarinpalCallbackView`.
-  - `backend/shop/admin.py`: Registered new models, defined `PaymentInline` for orders, and implemented `approve_payments` and `reject_payments` actions. Hardened `mark_paid` action to trigger save-level validation.
-  - `backend/shop/tests.py`: Added `IranianPaymentTests` class with 7 integration and regression tests.
-  - Applied migrations `shop.0007_bankaccount_alter_order_status_payment`.
+- **Farsi Localization of Admin Navigation**:
+  - `backend/shop/models.py`: Added Farsi Meta `verbose_name` and `verbose_name_plural` for `Category`, `Product`, `Review`, `Address`, `QuoteRequest`, and `Order`.
+  - `backend/shop/apps.py`: Set `verbose_name = "فروشگاه"` in `ShopConfig` to display the app label in Farsi.
+  - Applied migrations: `shop.0008_alter_address_options_alter_category_options_and_more`.
 
 ## Failed Attempts
 

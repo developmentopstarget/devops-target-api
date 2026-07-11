@@ -22,7 +22,8 @@ class Category(models.Model):
 
     class Meta:
         ordering = ["order", "name"]
-        verbose_name_plural = "categories"
+        verbose_name = "دستهبندی"
+        verbose_name_plural = "دستهبندیها"
 
     def __str__(self):
         return self.name
@@ -81,6 +82,8 @@ class Product(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        verbose_name = "محصول"
+        verbose_name_plural = "محصولات"
 
     def __str__(self):
         return self.name
@@ -146,6 +149,8 @@ class Review(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        verbose_name = "دیدگاه"
+        verbose_name_plural = "دیدگاهها"
         constraints = [
             models.UniqueConstraint(
                 fields=["product", "user"], name="unique_review_per_user_product"
@@ -173,7 +178,8 @@ class Address(models.Model):
 
     class Meta:
         ordering = ["-is_default", "-id"]
-        verbose_name_plural = "addresses"
+        verbose_name = "آدرس"
+        verbose_name_plural = "آدرسها"
 
     def __str__(self):
         return f"{self.full_name} — {self.line1}, {self.city}"
@@ -221,6 +227,8 @@ class QuoteRequest(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        verbose_name = "درخواست قیمت"
+        verbose_name_plural = "درخواستهای قیمت"
 
     def __str__(self):
         return f"Quote #{self.id} — {self.product.name} ({self.user.username})"
@@ -347,6 +355,8 @@ class Order(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+        verbose_name = "سفارش"
+        verbose_name_plural = "سفارشها"
 
     def __str__(self):
         return self.number
