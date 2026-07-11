@@ -65,3 +65,6 @@ cd backend
 ./.venv/bin/python manage.py check
 ./.venv/bin/python manage.py test
 ```
+## Roadmap pointer
+
+Full project roadmap (Option B — all features) lives in `ROADMAP.md` (repo root) and the Obsidian journal `DevOps-Target.md`. Current position: MVP loop complete; next up is **Phase A (catalog data model + Persian taxonomy)**. See `ROADMAP.md` for phases A–F (flexible pricing, quote system, Iranian payments, 2FA, support chat, launch).
