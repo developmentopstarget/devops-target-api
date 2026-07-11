@@ -72,3 +72,33 @@ Most **خدمات (services)** and some hardware are `on_request` (تماس بگ
 - Never auto-approve a manual payment; admin verifies every receipt.
 - Keep frontend and backend product/order shapes in sync (the mappers in `web/src/lib/checkout.ts` + params in `web/src/lib/products-filter.ts` mirror the Django serializers).
 - Update this file + Obsidian `DevOps-Target.md` whenever direction changes.
+## Appendix — AI infrastructure candidates (parking lot, NOT scheduled)
+
+**Rule:** do not adopt any of these silently. When one becomes relevant, the agent must first explain (to the user) what it is, how it helps *this* app, and the trade-offs — and get approval — before adding it.
+
+Context: the app's only AI surface today is the **support chat** (Django Channels + OpenAI). Two concrete constraints make part of this list relevant:
+
+**⚠️ Two concrete flags:**
+1. **OpenAI is unreachable from Iran.** The support-chat AI as wired won't work from an Iran-hosted deploy. Plan: put **LiteLLM** in front as a single adapter, backed by either a **self-hosted open model (Ollama / vLLM)** or an **Iran-reachable provider**. (Direct parallel to "Stripe won't work in Iran → Zarinpal".)
+2. **Langfuse** — self-hosted LLM tracing / cost / latency monitoring; add once the chat is in production.
+
+**Candidates by when they'd matter:**
+
+*Support-chat layer (nearest):*
+- **LiteLLM** — one API for 100+ LLM providers + fallback/cost tracking. The provider-swap adapter for the Iran issue.
+- **Ollama** — run open LLMs locally, OpenAI-compatible API. Local/self-host model option.
+- **vLLM** — high-throughput serving; only at real scale.
+- **Langfuse** — LLM observability in production.
+- **Instructor / Outlines** — force structured/validated LLM output (e.g. classify support tickets, extract intent). Optional.
+
+*Grounded answers / RAG layer (later — only if the assistant should answer from catalog/specs/policies; a separate project):*
+- **Crawl4AI** — scrape pages → clean markdown.
+- **Marker** — PDF/docs → markdown (specs, manuals).
+- **Chunky** — smart text splitting.
+- **Qdrant** — vector DB for similarity + hybrid search.
+- **Ragas** — automated RAG-quality metrics.
+
+*Advanced:*
+- **DSPy** — programmatic prompt optimization (Stanford). Overkill unless deep prompt tuning is needed.
+
+Source: "12 Open Source AI Tools That Feel ILLEGAL To Know About" (Cloud Codes, YouTube) — noted 2026-07-09.
