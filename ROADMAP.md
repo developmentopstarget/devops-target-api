@@ -7,11 +7,18 @@ Option B — **build all features** (no deferral). Canonical roadmap; mirrored i
 
 DevOps Target is the rebuild of **niavarancomputer.com** (نیاوران کامپیوتر) — a Tehran computer shop. Two repos: `devops-target-web` (Next.js 16 + TS + Tailwind 4) + `devops-target-api` (Django + DRF + Channels). Bilingual EN + Farsi/RTL (Vazirmatn). Non-technical shop owner must be able to run the whole store from the admin.
 
-## Where we are (2026-07-09)
+## Where we are (2026-07-11)
 
-**MVP loop is live end-to-end:** browse real catalog → cart → checkout → real order + server-side totals + atomic stock decrement → Django admin management → customer order history. Auth (djoser) wired. EN + Farsi/RTL with Vazirmatn. Niavaran logo integrated. Django admin working.
-Backend increments 1–5 done, 118 tests passing.
-**⚠️ Payments = Stripe, which is a DEV STAND-IN only** (Stripe doesn't operate in Iran) — to be replaced per Phase D.
+**MVP + Phases A, B, C, D + i18n are DONE and MERGED to `main`** in both repos (CI green, bilingual, verified end-to-end). Much built with Gemini Antigravity via the Cowork↔Antigravity loop.
+- **Phase A — DONE:** `pricing_mode` fixed|on_request, nullable price, `type`, `condition`, Pillow uploads, Persian taxonomy seed.
+- **Phase B — DONE:** `django-unfold`, Farsi admin UI (RTL, Tehran TZ), Persian labels + model `verbose_name`s (nav in Farsi), image-preview widget.
+- **Phase C — DONE:** `QuoteRequest` → auto-creates payable `Order` on approval; frontend quote flow.
+- **Phase D — DONE (verified, order DT-629196):** `BankAccount` + `Payment` (receipt `ImageField`, `verification_status`, `verified_by/at`); `Order.awaiting_verification` never-auto-approve guard; admin verify action; migrations 0005–0008. **Zarinpal = disabled/dormant** — stub views kept for later real wiring.
+- **i18n — DONE:** Farsi default, admin nav Farsi.
+- **CI:** `ci.yml` runs `collectstatic --noinput` before backend-tests (django-unfold static manifest under DEBUG=False). 132 tests passing.
+
+**➡️ NEXT = Phase E** (2FA via django-otp + `/verify-2fa`; support chat = Channels websocket + AI — ⚠️ OpenAI unreachable from Iran → plan LiteLLM + local/Iran model). Then Phase F (content/images, deploy Render + Vercel).
+**⚠️ Online-card payments still = Stripe dev stand-in** (doesn't work in Iran); live working method = manual bank transfer; Zarinpal dormant.
 
 ## Locked decisions
 

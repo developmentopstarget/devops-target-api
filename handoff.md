@@ -48,7 +48,7 @@ None. Django admin localization and Phase D Backend Core are complete.
 
 ## Next Step
 
-Build Phase D Frontend integrations (bank account listing, receipt upload UI, Zarinpal gateway redirect, and payment status checks).
+Phase D is DONE and merged to `main` (backend + frontend, verified end-to-end, CI green). **Next = Phase E:** 2FA (django-otp + wire `/verify-2fa`) and support chat (Channels websocket + AI — ⚠️ OpenAI unreachable from Iran, plan LiteLLM + local/Iran-reachable model). See `ROADMAP.md` for the full picture.
 
 ## Commands to Run First
 
