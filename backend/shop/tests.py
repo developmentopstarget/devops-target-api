@@ -11,7 +11,7 @@ from rest_framework.test import APITestCase
 
 from api.models import Notification
 
-from .models import Address, Category, Order, OrderItem, Product, ProductImage, Review
+from .models import Address, Category, Order, OrderItem, Product, ProductImage, Review, QuoteRequest, BankAccount, Payment
 
 ORDER_PRICING_SETTINGS = {
     "TAX_RATE": 0.08,
@@ -102,6 +102,27 @@ class ProductModelTests(TestCase):
 
         self.assertEqual(product.aggregate_rating, 4.0)
         self.assertEqual(product.review_count, 2)
+
+    def test_pricing_mode_defaults_and_nullable_price(self):
+        # Verify defaults
+        product = make_product(slug="default-prod", sku="SKU-DEF")
+        self.assertEqual(product.pricing_mode, "fixed")
+        self.assertEqual(product.type, "physical")
+        self.assertEqual(product.condition, "new")
+        self.assertIsNotNone(product.price)
+
+        # Verify pricing mode choices and nullable price
+        on_request_product = make_product(
+            slug="on-req-prod",
+            sku="SKU-ONREQ",
+            pricing_mode="on_request",
+            price=None,
+            type="service",
+            condition="new"
+        )
+        self.assertEqual(on_request_product.pricing_mode, "on_request")
+        self.assertIsNone(on_request_product.price)
+        self.assertEqual(on_request_product.type, "service")
 
 
 class ProductImageModelTests(TestCase):
@@ -793,6 +814,31 @@ class OrderViewSetTests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    def test_on_request_product_purchase_rejected(self):
+        self.authenticate()
+        on_req = make_product(
+            name="Service Quote",
+            slug="service-quote",
+            sku="SKU-QUOTE",
+            pricing_mode="on_request",
+            price=None,
+            category=self.category,
+            stock=10
+        )
+
+        response = self.client.post(
+            self.list_url,
+            {
+                "fulfillment": "pickup",
+                "items": [{"product": "service-quote", "quantity": 1}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("items", response.data)
+        self.assertEqual(Order.objects.count(), 0)
+
 
 class StripeCheckoutTests(APITestCase):
     def setUp(self):
@@ -1054,4 +1100,327 @@ class StripeCheckoutTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class QuoteRequestTests(APITestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="quoteuser", password="pass", email="quote@example.com")
+        self.token = Token.objects.create(user=self.user)
+        self.category = Category.objects.create(name="Services", slug="services")
+        self.product = make_product(
+            name="Consulting Service",
+            slug="consulting",
+            sku="SKU-CONS",
+            category=self.category,
+            price=None,
+            pricing_mode="on_request",
+            type="service",
+        )
+        self.url = reverse("quote-list")
+
+    def authenticate(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+
+    def test_submit_quote_request_requires_authentication(self):
+        response = self.client.post(self.url, {
+            "product": self.product.slug,
+            "quantity": 2,
+            "contact_phone": "+989123456789",
+            "message": "Need help with DevOps",
+        })
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_submit_quote_request_success(self):
+        self.authenticate()
+        response = self.client.post(self.url, {
+            "product": self.product.slug,
+            "quantity": 3,
+            "contact_phone": "+989123456789",
+            "message": "Custom requirements",
+        })
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(QuoteRequest.objects.count(), 1)
+        quote = QuoteRequest.objects.get()
+        self.assertEqual(quote.user, self.user)
+        self.assertEqual(quote.product, self.product)
+        self.assertEqual(quote.quantity, 3)
+        self.assertEqual(quote.contact_phone, "+989123456789")
+        self.assertEqual(quote.status, "new")
+
+    def test_read_quote_requests_list_restricted_to_owner(self):
+        # Create quote for current user
+        QuoteRequest.objects.create(
+            user=self.user,
+            product=self.product,
+            quantity=1,
+            contact_phone="+981",
+        )
+        # Create quote for other user
+        other_user = User.objects.create_user(username="otherquote", password="pass")
+        QuoteRequest.objects.create(
+            user=other_user,
+            product=self.product,
+            quantity=5,
+            contact_phone="+982",
+        )
+
+        self.authenticate()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Should only list own quote
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["contact_phone"], "+981")
+
+    def test_quote_approval_generates_order_and_notifications(self):
+        # Create a QuoteRequest
+        quote = QuoteRequest.objects.create(
+            user=self.user,
+            product=self.product,
+            quantity=2,
+            contact_phone="+989123456789",
+            message="Test quote approval",
+        )
+
+        # Transition to approved with agreed_price
+        with self.settings(TAX_RATE=0.08):
+            quote.status = "approved"
+            quote.agreed_price = Decimal("150.00")
+            quote.save()
+
+        # Check Order was generated
+        self.assertEqual(Order.objects.count(), 1)
+        order = Order.objects.get()
+        self.assertEqual(order.user, self.user)
+        self.assertEqual(order.status, "pending_payment")
+        self.assertEqual(order.fulfillment, "pickup")
+        self.assertEqual(order.subtotal, Decimal("300.00")) # 150.00 * 2
+        self.assertEqual(order.tax, Decimal("24.00")) # 300 * 0.08
+        self.assertEqual(order.total, Decimal("324.00"))
+        self.assertEqual(order.quote_request, quote)
+
+        # Check OrderItem was generated
+        self.assertEqual(OrderItem.objects.count(), 1)
+        item = OrderItem.objects.get()
+        self.assertEqual(item.order, order)
+        self.assertEqual(item.product, self.product)
+        self.assertEqual(item.unit_price, Decimal("150.00"))
+        self.assertEqual(item.quantity, 2)
+        self.assertEqual(item.line_total, Decimal("300.00"))
+
+        # Check Notification was created
+        self.assertEqual(Notification.objects.count(), 1)
+        notification = Notification.objects.get()
+        self.assertEqual(notification.user, self.user)
+        self.assertIn("تأیید شد", notification.title)
+        self.assertIn(order.number, notification.message)
+
+    def test_quote_approval_decrements_stock_only_for_physical_products(self):
+        # Service product stock does not decrement (stays 10 or similar)
+        service_quote = QuoteRequest.objects.create(
+            user=self.user,
+            product=self.product,
+            quantity=2,
+            contact_phone="+98912",
+        )
+        self.product.stock = 10
+        self.product.save()
+
+        service_quote.status = "approved"
+        service_quote.agreed_price = Decimal("10.00")
+        service_quote.save()
+
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.stock, 10) # service remains unchanged
+
+        # Physical product stock does decrement
+        physical_product = make_product(
+            name="Physical Gear",
+            slug="gear",
+            sku="SKU-GEAR",
+            category=self.category,
+            price="50.00",
+            pricing_mode="fixed",
+            type="physical",
+            stock=10,
+        )
+
+        physical_quote = QuoteRequest.objects.create(
+            user=self.user,
+            product=physical_product,
+            quantity=3,
+            contact_phone="+98912",
+        )
+
+        physical_quote.status = "approved"
+        physical_quote.agreed_price = Decimal("40.00")
+        physical_quote.save()
+
+        physical_product.refresh_from_db()
+        self.assertEqual(physical_product.stock, 7) # decremented by 3
+
+
+class IranianPaymentTests(APITestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        self.user = User.objects.create_user(username="paymentowner", password="pass", email="owner@example.com")
+        self.token = Token.objects.create(user=self.user)
+        self.category = Category.objects.create(name="Laptops", slug="laptops")
+        self.product = make_product(
+            name="Laptop",
+            slug="laptop",
+            sku="SKU-LAP",
+            category=self.category,
+            price="100.00",
+            stock=10,
+        )
+        self.order = Order.objects.create(
+            user=self.user,
+            email=self.user.email,
+            fulfillment="pickup",
+            subtotal=Decimal("100.00"),
+            total=Decimal("100.00"),
+        )
+        
+        self.bank_account = BankAccount.objects.create(
+            bank_name="Melli",
+            card_number="6037991234567890",
+            sheba_number="IR120170000000123456789012",
+            holder_name="Mehdi",
+            is_active=True
+        )
+        
+    def authenticate(self):
+        self.client.credentials(HTTP_AUTHORIZATION=f"Token {self.token.key}")
+
+    def test_bank_account_list(self):
+        self.authenticate()
+        response = self.client.get(reverse("bank-account-list"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["bank_name"], "Melli")
+
+    def test_submit_bank_transfer_success(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from io import BytesIO
+        from PIL import Image
+        
+        self.authenticate()
+        
+        file_obj = BytesIO()
+        image = Image.new("RGBA", size=(1, 1), color=(255, 0, 0))
+        image.save(file_obj, "png")
+        file_obj.seek(0)
+        mock_image = SimpleUploadedFile("receipt.png", file_obj.read(), content_type="image/png")
+
+        response = self.client.post(
+            reverse("bank-transfer-submit"),
+            {
+                "order_id": self.order.id,
+                "receipt_image": mock_image,
+                "reference_number": "REF-123456"
+            },
+            format="multipart"
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.data)
+        self.assertEqual(response.data["status"], "pending")
+        
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, "awaiting_verification")
+
+        self.assertEqual(Payment.objects.count(), 1)
+        payment = Payment.objects.get()
+        self.assertEqual(payment.order, self.order)
+        self.assertEqual(payment.reference_number, "REF-123456")
+        self.assertEqual(payment.verification_status, "pending")
+        self.assertTrue(payment.receipt_image.name.startswith("receipts/"))
+
+        self.assertEqual(Notification.objects.filter(user=self.user).count(), 1)
+
+    def test_submit_bank_transfer_invalid_order(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from io import BytesIO
+        from PIL import Image
+        
+        self.authenticate()
+        
+        file_obj = BytesIO()
+        image = Image.new("RGBA", size=(1, 1), color=(255, 0, 0))
+        image.save(file_obj, "png")
+        file_obj.seek(0)
+        mock_image = SimpleUploadedFile("receipt.png", file_obj.read(), content_type="image/png")
+        
+        response = self.client.post(
+            reverse("bank-transfer-submit"),
+            {
+                "order_id": 99999,
+                "receipt_image": mock_image,
+                "reference_number": "REF-123"
+            },
+            format="multipart"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_order_paid_transition_validation(self):
+        self.order.status = "awaiting_verification"
+        self.order.save()
+
+        payment = Payment.objects.create(
+            order=self.order,
+            reference_number="REF-1",
+            verification_status="pending"
+        )
+
+        from django.core.exceptions import ValidationError
+        with self.assertRaises(ValidationError):
+            self.order.status = "paid"
+            self.order.save()
+
+        payment.verification_status = "approved"
+        payment.save()
+
+        self.order.status = "paid"
+        self.order.save()
+        self.assertEqual(self.order.status, "paid")
+
+    def test_zarinpal_initiate_success(self):
+        self.authenticate()
+        response = self.client.post(
+            reverse("zarinpal-initiate"),
+            {"order_id": self.order.id},
+            format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("authority", response.data)
+        self.assertIn("payment_url", response.data)
+
+    def test_zarinpal_callback_success(self):
+        response = self.client.get(
+            reverse("zarinpal-callback"),
+            {
+                "Authority": "zarp-12345",
+                "Status": "OK",
+                "order_id": self.order.id
+            }
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, "paid")
+
+        payment = Payment.objects.get(order=self.order)
+        self.assertEqual(payment.reference_number, "zarp-12345")
+        self.assertEqual(payment.verification_status, "approved")
+
+    def test_zarinpal_callback_failure(self):
+        response = self.client.get(
+            reverse("zarinpal-callback"),
+            {
+                "Authority": "zarp-12345",
+                "Status": "NOK",
+                "order_id": self.order.id
+            }
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.order.refresh_from_db()
+        self.assertEqual(self.order.status, "failed")
+
 
