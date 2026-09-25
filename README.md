@@ -105,8 +105,8 @@ flowchart LR
 Follow these instructions to set up and run the project locally.
 
 ### Prerequisites
-*   Python 3.8+
-*   Node.js (LTS version)
+*   Python 3.13
+*   Node.js 22
 *   npm or Yarn
 *   Redis Server (running on `localhost:6379`)
 
@@ -274,6 +274,7 @@ The production application is deployed on Render:
 - **Backend:** Django + Daphne Docker Web Service
 - **Database:** PostgreSQL
 - **Real-time layer:** Redis
+- **AI integration:** OpenAI API
 - **CI/CD:** GitHub Actions
 
 See [Deployment Guide](docs/DEPLOYMENT.md) for environment configuration, deployment settings, and post-deploy verification.
