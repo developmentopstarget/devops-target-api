@@ -1,14 +1,29 @@
-# Full-Stack Chat Application with React, Django, and Hybrid AI
+# Real-Time AI Chat Platform
 
-## Description
-A modern full-stack web application featuring user authentication, real-time chat, and hybrid AI/human support. The frontend is built with React and Tailwind CSS, while the backend is powered by Django and Django REST Framework, utilizing Django Channels for WebSocket communication.
+Production-oriented full-stack application featuring authenticated user workflows,
+real-time WebSocket messaging, persistent chat history, notifications, and
+OpenAI-powered assistance.
 
-## Key Features
-*   **User Authentication:** Secure user registration and login with token-based authentication (Djoser).
-*   **Real-time Chat:** Instant messaging capabilities using WebSockets (Django Channels and `react-use-websocket`).
-*   **Hybrid AI Integration:** AI-powered responses in the chat using the OpenAI API, allowing for automated assistance.
-*   **Admin Panel:** Django's built-in administration interface for managing users and viewing chat messages.
-*   **Dedicated AI User:** AI-generated messages are attributed to a dedicated "AI" user for clarity.
+## Live Demo
+
+- **Application:** https://rda-frontend-zmln.onrender.com
+- **API Health:** https://rda-backend-62d0.onrender.com/api/health/
+
+> The application is hosted on Render. Free-tier services may take a short time to wake up after inactivity.
+
+## Highlights
+
+- Secure user registration, login, and protected application routes
+- Real-time authenticated messaging using WebSockets
+- OpenAI-powered AI chat with validation and error handling
+- Persistent chat history backed by PostgreSQL
+- Redis-backed Django Channels for real-time communication
+- User notifications and authenticated CRUD workflows
+- Responsive, mobile-first React interface with dark/light mode
+- Docker Compose production stack with PostgreSQL and Redis
+- Automated backend tests and frontend production build checks
+- GitHub Actions CI pipeline
+- Production deployment on Render
 
 ## Tech Stack
 **Frontend:**
