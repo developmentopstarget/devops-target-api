@@ -135,11 +135,20 @@ pip install -r requirements.txt
 ```
 
 **Configure Environment Variables:**
-Create a `.env` file in the `backend/` directory and add your OpenAI API key:
+
+Copy the example environment file:
+
+```bash
+cp .env.example .env
 ```
+
+For AI chat functionality, set:
+
+```env
 OPENAI_API_KEY=your_openai_api_key_here
 ```
-Replace `your_openai_api_key_here` with your actual OpenAI API key from [OpenAI Platform](https://platform.openai.com/api-keys).
+
+Local development uses SQLite automatically when no PostgreSQL configuration is provided.
 
 **Run Database Migrations:**
 ```bash
@@ -294,7 +303,7 @@ Log in to the admin panel with your superuser credentials to view and manage cha
 2.  **Register** a new user or **Log in** with your superuser credentials.
 3.  Navigate to the `/chat` page.
 4.  **Send a message to the AI:** In the chat input, type a message starting with `/ai ` (e.g., `/ai What is the capital of France?`). The AI will respond.
-5.  **Real-time Chat:** Open another browser window (or incognito tab), log in with a different user, and navigate to the `/chat` page. Messages sent from either user will appear in both windows.
+5. **Real-time Chat:** Open another browser window or incognito session, log in with the same account, and navigate to `/chat`. Messages are synchronized across active sessions through authenticated WebSocket connections.
 
 ## Contributing
 Feel free to fork the repository, open issues, or submit pull requests.
