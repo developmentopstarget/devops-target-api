@@ -8,8 +8,8 @@ The current live deployment uses Render:
 
 | Service | Render type | Name | URL |
 |---|---|---|---|
-| Backend | Web Service / Docker | `rda-backend` | `https://rda-backend-62d0.onrender.com` |
-| Frontend | Static Site | `rda-frontend` | `https://rda-frontend-zmln.onrender.com` |
+| Backend | Web Service / Docker | `rda-backend` | [Backend API](https://rda-backend-62d0.onrender.com) |
+| Frontend | Static Site | `rda-frontend` | [Live Application](https://rda-frontend-zmln.onrender.com) |
 | Database | PostgreSQL | `rda-postgres` | Internal Render database URL |
 | Redis | Key Value / Redis | `rda-redis` | Internal Render Redis URL |
 
@@ -33,8 +33,14 @@ ALLOWED_HOSTS=rda-backend-62d0.onrender.com
 CORS_ALLOWED_ORIGINS=https://rda-frontend-zmln.onrender.com
 DATABASE_URL=<render-postgres-url>
 REDIS_URL=<render-redis-url>
+```
+
+AI integration:
+
+```env
 OPENAI_API_KEY=<openai-api-key>
 ```
+`OPENAI_API_KEY` is required for `/ai` responses, but the Django service can start without it.
 
 Do not commit production secrets to Git.
 
