@@ -11,6 +11,24 @@ OpenAI-powered assistance.
 
 > The application is hosted on Render. Free-tier services may take a short time to wake up after inactivity.
 
+## Screenshots
+
+### Application Overview
+
+![Application Home](docs/screenshots/home.png)
+
+### Authenticated Dashboard
+
+![Authenticated Dashboard](docs/screenshots/dashboard.png)
+
+### User-Owned Items
+
+![User-Owned Items](docs/screenshots/items.png)
+
+### Real-Time AI Chat
+
+![Real-Time AI Chat](docs/screenshots/chat.png)
+
 ## Highlights
 
 - Secure user registration, login, and protected application routes
