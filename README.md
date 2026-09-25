@@ -112,8 +112,8 @@ Follow these instructions to set up and run the project locally.
 
 ### 1. Clone the Repository
 ```bash
-git clone <your-repository-url>
-cd react-django-app
+git clone https://github.com/developmentopstarget/devops-target-api.git
+cd devops-target-api
 ```
 
 ### 2. Backend Setup (Django)
@@ -396,7 +396,8 @@ Log in to the admin panel with your superuser credentials to view and manage cha
 Feel free to fork the repository, open issues, or submit pull requests.
 
 ## License
-[Choose your license, e.g., MIT License]
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ## Acknowledgements
 *   React, Vite, Tailwind CSS
