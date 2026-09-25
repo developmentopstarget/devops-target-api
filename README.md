@@ -257,113 +257,17 @@ curl -I http://localhost           # Nginx returns 200
 curl http://localhost/api/items/   # returns 401 unless authenticated
 ```
 
-## Render Deployment
+## Deployment
 
-The current live deployment uses Render:
+The production application is deployed on Render:
 
-| Service | Render type | Name | URL |
-|---|---|---|---|
-| Backend | Web Service / Docker | `rda-backend` | `https://rda-backend-62d0.onrender.com` |
-| Frontend | Static Site | `rda-frontend` | `https://rda-frontend-zmln.onrender.com` |
-| Database | PostgreSQL | `rda-postgres` | internal Render database URL |
-| Redis | Key Value / Redis | `rda-redis` | internal Render Redis URL |
+- **Frontend:** React/Vite Static Site
+- **Backend:** Django + Daphne Docker Web Service
+- **Database:** PostgreSQL
+- **Real-time layer:** Redis
+- **CI/CD:** GitHub Actions
 
-### Backend Render service
-
-The backend is deployed as a Docker Web Service using:
-
-- Dockerfile: `backend/Dockerfile`
-- Entrypoint: `backend/entrypoint.sh`
-- Runtime command handled by the entrypoint:
-  - runs migrations with `python manage.py migrate --noinput`
-  - starts Daphne with `daphne -b 0.0.0.0 -p "${PORT:-8000}" config.asgi:application`
-
-Required backend environment variables:
-
-~~~env
-DJANGO_ENV=production
-DEBUG=False
-SECRET_KEY=<render-secret-key>
-ALLOWED_HOSTS=rda-backend-62d0.onrender.com,<vercel-frontend-host>
-CORS_ALLOWED_ORIGINS=https://rda-frontend-zmln.onrender.com
-DATABASE_URL=<render-postgres-url>
-REDIS_URL=<render-redis-url>
-OPENAI_API_KEY=<optional-openai-api-key>
-~~~
-
-For a Vercel frontend, `ALLOWED_HOSTS` must include both hosts without protocol:
-
-- the Render backend host, for example `rda-backend-62d0.onrender.com`
-- the Vercel frontend host, for example `<project-name>.vercel.app`
-
-Do not commit production secrets to Git.
-
-### Frontend Render static site
-
-The frontend is deployed as a Render Static Site from the `frontend/` app.
-
-If the Render root directory is set to `frontend`, use:
-
-~~~bash
-npm ci
-npm run build
-~~~
-
-Publish directory:
-
-~~~text
-dist
-~~~
-
-Frontend environment variables:
-
-~~~env
-VITE_API_BASE_URL=https://rda-backend-62d0.onrender.com
-VITE_WS_BASE_URL=wss://rda-backend-62d0.onrender.com
-~~~
-
-### Frontend Vercel static site
-
-For Vercel, set the project root directory to `frontend`.
-
-Required Vercel environment variables:
-
-~~~env
-VITE_API_BASE_URL=https://<render-backend-host>
-VITE_WS_BASE_URL=wss://<render-backend-host>
-~~~
-
-`frontend/vercel.json` rewrites all routes to `/` so React BrowserRouter routes are served by `index.html`.
-
-### Post-deploy verification
-
-Backend health check:
-
-~~~bash
-curl https://rda-backend-62d0.onrender.com/api/health/
-~~~
-
-Expected response:
-
-~~~json
-{"status":"ok"}
-~~~
-
-Frontend checks:
-
-1. Open `https://rda-frontend-zmln.onrender.com`.
-2. Register a test user.
-3. Log in.
-4. Open Dashboard.
-5. Open Items and create an item.
-6. Open Chat and confirm the WebSocket connects.
-7. Test dark/light mode.
-8. Test notification dropdown.
-9. On mobile width, open the hamburger menu and tap outside it to confirm it closes.
-
-### Local DNS/VPN note
-
-If local browser or `curl` cannot reach Render while the app works from another network, check VPN, Tailscale exit node, and DNS settings. The local machine may be routing Render traffic through a tunnel or resolving the hostname incorrectly. Render can still be healthy even if the local Mac temporarily cannot reach it.
+See [Deployment Guide](docs/DEPLOYMENT.md) for environment configuration, deployment settings, and post-deploy verification.
 
 ## CI / GitHub Actions
 
