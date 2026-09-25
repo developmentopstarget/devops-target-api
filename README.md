@@ -66,6 +66,40 @@ OpenAI-powered assistance.
 *   SQLite for local development
 *   PostgreSQL for Docker and Render production deployments
 
+## Architecture
+
+```mermaid
+flowchart LR
+    U[User / Browser] --> F[React + Vite + Tailwind CSS]
+
+    F -->|REST API / HTTPS| API[Django REST Framework]
+    F -->|WebSocket / WSS| WS[Django Channels + Daphne]
+
+    API --> DB[(PostgreSQL)]
+    WS --> REDIS[(Redis)]
+    WS --> DB
+
+    WS -->|AI requests| OPENAI[OpenAI API]
+
+    subgraph Render
+        F
+        API
+        WS
+        DB
+        REDIS
+    end
+```
+
+### Request Flow
+
+- **Frontend:** React/Vite application served as a Render Static Site.
+- **REST API:** Django REST Framework handles authentication, user-owned items, notifications, and application data.
+- **Real-time messaging:** Django Channels and Daphne handle authenticated WebSocket connections.
+- **Redis:** Provides the Channels layer used for real-time communication.
+- **PostgreSQL:** Stores users, authentication data, items, chat history, and application records.
+- **OpenAI:** Processes `/ai` chat requests from authenticated WebSocket sessions.
+- **Deployment:** Frontend, Django backend, PostgreSQL, and Redis are deployed through Render.
+
 ## Getting Started
 
 Follow these instructions to set up and run the project locally.
