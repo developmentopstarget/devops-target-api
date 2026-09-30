@@ -1,8 +1,8 @@
 # Real-Time AI Chat Platform
 
-Production-oriented full-stack application featuring authenticated user workflows,
-real-time WebSocket messaging, persistent chat history, notifications, and
-OpenAI-powered assistance.
+Production-oriented full-stack AI application built with React and Django, featuring secure authentication, real-time WebSocket messaging, persistent conversation history, user-owned data, notifications, and OpenAI-powered chat.
+
+The application uses Django REST Framework for APIs, Django Channels and Redis for real-time communication, PostgreSQL for production persistence, Docker for containerization, and GitHub Actions for CI.
 
 ## Live Demo
 
@@ -33,8 +33,8 @@ OpenAI-powered assistance.
 
 - Secure user registration, login, and protected application routes
 - Real-time authenticated messaging using WebSockets
-- OpenAI-powered AI chat with validation and error handling
-- Persistent chat history backed by PostgreSQL
+- OpenAI-powered chat with validation, rate limiting, and error handling
+- Persistent conversation history backed by PostgreSQL
 - Redis-backed Django Channels for real-time communication
 - User notifications and authenticated CRUD workflows
 - Responsive, mobile-first React interface with dark/light mode
@@ -313,7 +313,3 @@ Feel free to fork the repository, open issues, or submit pull requests.
 
 This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
-## Acknowledgements
-*   React, Vite, Tailwind CSS
-*   Django, Django REST Framework, Django Channels
-*   OpenAI
